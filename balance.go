@@ -4,12 +4,14 @@ import (
 	// "encoding/json"
 
 	"fmt"
+	"hash/fnv"
 	"math"
 	"sort"
 	"strconv"
 
 	"github.com/Freeaqingme/GoConsistentHash"
 	"github.com/spaolacci/murmur3"
+	"github.com/tenfyzhong/cityhash"
 )
 
 var (
@@ -42,7 +44,7 @@ func stats(m map[string]int, src string, replica int) {
 
 	varince := math.Sqrt(sum)
 
-	fmt.Printf("%s\treplica:%d\tvar:%.0f\tmax:%d\tmin:%d\tdiff:%d\n", src, replica, varince, nums[nodes-1], nums[0], nums[nodes-1]-nums[0])
+	fmt.Printf("%s\treplica:%d\tvar:%.0f\tmax:%d\tmin:%d\tdiff:%d\tratio:%f\n", src, replica, varince, nums[nodes-1], nums[0], nums[nodes-1]-nums[0], float64(nums[nodes-1]-nums[0])*100/avg)
 }
 
 func testMurMurConsistHash(replica int) {
@@ -89,6 +91,56 @@ func testCrc32ConsistHash(replica int) {
 	stats(nums, "Crc32", replica)
 }
 
+func testFnv1ConsistHash(replica int) {
+	ch := GoConsistentHash.New(replica, fnv1)
+	for i := 0; i < nodes; i++ {
+		err := ch.AddString(fmt.Sprintf("nodes-%d", i))
+		if err != nil {
+			panic(err)
+		}
+	}
+
+	nums := make(map[string]int, nodes)
+	for i := 0; i < requests; i++ {
+		node := ch.Get(strconv.Itoa(i))
+		if _, exists := nums[node]; exists {
+			nums[node]++
+		} else {
+			nums[node] = 1
+		}
+	}
+
+	stats(nums, "Fnv1", replica)
+}
+
+func fnv1(data []byte) uint32 {
+	h := fnv.New32a()
+	h.Write(data)
+	return h.Sum32()
+}
+
+func testCityConsistHash(replica int) {
+	ch := GoConsistentHash.New(replica, cityhash.CityHash32)
+	for i := 0; i < nodes; i++ {
+		err := ch.AddString(fmt.Sprintf("nodes-%d", i))
+		if err != nil {
+			panic(err)
+		}
+	}
+
+	nums := make(map[string]int, nodes)
+	for i := 0; i < requests; i++ {
+		node := ch.Get(strconv.Itoa(i))
+		if _, exists := nums[node]; exists {
+			nums[node]++
+		} else {
+			nums[node] = 1
+		}
+	}
+
+	stats(nums, "Cityhash", replica)
+}
+
 func main() {
 	replicas := []int{3, 10, 50, 100, 200, 400, 600, 800, 1000}
 	for _, replica := range replicas {
@@ -97,5 +149,13 @@ func main() {
 
 	for _, replica := range replicas {
 		testCrc32ConsistHash(replica)
+	}
+
+	for _, replica := range replicas {
+		testFnv1ConsistHash(replica)
+	}
+
+	for _, replica := range replicas {
+		testCityConsistHash(replica)
 	}
 }
